@@ -23,6 +23,7 @@ module Fog
         attribute :owner,               :aliases => 'Owner'
         attribute :storage_class,       :aliases => ['x-amz-storage-class', 'StorageClass']
         attribute :encryption,          :aliases => 'x-amz-server-side-encryption'
+        attribute :customer_encryption_key
         attribute :version,             :aliases => 'x-amz-version-id'
 
         # @note Chunk size to use for multipart uploads.
@@ -174,6 +175,7 @@ module Fog
         # @option options [String] expires sets number of seconds before AWS Object expires.
         # @option options [String] storage_class sets x-amz-storage-class HTTP header. Defaults to 'STANDARD'. Or, 'REDUCED_REDUNDANCY'
         # @option options [String] encryption sets HTTP encryption header. Set to 'AES256' to encrypt files at rest on S3
+        # @option options [String] customer_encryption_key sets HTTP encryption headers to enable server-side encryption using customer key. Set to 32 byte string used for encryption.
         # @return [Boolean] true if no errors
         #
         def save(options = {})
@@ -190,7 +192,13 @@ module Fog
           options['Expires'] = expires if expires
           options.merge!(metadata)
           options['x-amz-storage-class'] = storage_class if storage_class
-          options['x-amz-server-side-encryption'] = encryption if encryption
+          if encryption
+            if customer_encryption_key
+              options.merge!(customer_encryption_key_headers)
+            else
+              options['x-amz-server-side-encryption'] = encryption
+            end
+          end
 
           if multipart_chunk_size && body.respond_to?(:read)
             data = multipart_save(options)
@@ -251,7 +259,9 @@ module Fog
           body.rewind if body.respond_to?(:rewind)
           while (chunk = body.read(multipart_chunk_size)) do
             md5 = Base64.encode64(Digest::MD5.digest(chunk)).strip
-            part_upload = service.upload_part(directory.key, key, upload_id, part_tags.size + 1, chunk, 'Content-MD5' => md5 )
+            part_options = {'Content-MD5' => md5}
+            part_options.merge!(options.select { |key| customer_encryption_key_headers.keys.include?(key) })
+            part_upload = service.upload_part(directory.key, key, upload_id, part_tags.size + 1, chunk, part_options )
             part_tags << part_upload.headers["ETag"]
           end
 
@@ -262,6 +272,13 @@ module Fog
         else
           # Complete the upload
           service.complete_multipart_upload(directory.key, key, upload_id, part_tags)
+        end
+
+        def customer_encryption_key_headers
+          { 'x-amz-server-side-encryption-customer-algorithm' => encryption,
+            'x-amz-server-side-encryption-customer-key' => Base64.encode64(customer_encryption_key).chomp!,
+            'x-amz-server-side-encryption-customer-key-md5' => Base64.encode64(Digest::MD5.digest(customer_encryption_key)).chomp!
+          }
         end
       end
     end
