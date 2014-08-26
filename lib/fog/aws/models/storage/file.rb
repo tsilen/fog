@@ -275,9 +275,13 @@ module Fog
         end
 
         def customer_encryption_key_headers
+          if customer_encryption_key
+            key = Base64.encode64(customer_encryption_key).chomp!
+            key_md5 = Base64.encode64(Digest::MD5.digest(customer_encryption_key)).chomp!
+          end
           { 'x-amz-server-side-encryption-customer-algorithm' => encryption,
-            'x-amz-server-side-encryption-customer-key' => Base64.encode64(customer_encryption_key).chomp!,
-            'x-amz-server-side-encryption-customer-key-md5' => Base64.encode64(Digest::MD5.digest(customer_encryption_key)).chomp!
+            'x-amz-server-side-encryption-customer-key' => key,
+            'x-amz-server-side-encryption-customer-key-md5' => key_md5
           }
         end
       end
